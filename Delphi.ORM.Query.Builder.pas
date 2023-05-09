@@ -514,6 +514,8 @@ begin
 
   SaveForeignKeys(Table, Result);
 
+  var Cursor := FConnection.OpenCursor(EmptyStr);
+
   for var Field in Table.Fields do
   begin
     var HasValue := Field.HasValue(Result, FieldValue);
@@ -552,20 +554,43 @@ begin
         FieldStringValue := Field.GetAsString(FieldValue);
 
         Changes[Field] := FieldStringValue;
-        SQL := Format(SQL, [Field.DatabaseName + '%2:s%0:s', FieldStringValue + '%2:s%1:s', ',']);
+        SQL := Format(SQL, [Field.DatabaseName + '%2:s%0:s', ':' + Field.DatabaseName + '%2:s%1:s', ',']);
+
+        if (FieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
+          Field.InPrimaryKey or FieldValue.IsObject) then
+          Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.Create(FieldStringValue.DeQuotedString)
+        else
+          Cursor.ParamsByName(Field.DatabaseName).AsString := FieldStringValue.DeQuotedString;
       end;
     end;
   end;
 
-  var Cursor := FConnection.ExecuteInsert(Format('insert into %s%s', [Table.DatabaseName, Format(SQL, ['', '', '', ''])]), OutputFieldNameList);
+  Cursor.SQL := Format('insert into %s%s', [Table.DatabaseName, Format(SQL, ['', '', '', ''])]);
 
-  if Cursor.Next then
-    for var A := Low(OutputFieldList) to High(OutputFieldList) do
-    begin
-      OutputFieldList[A].SetValue(Result, Cursor.GetFieldValue(A));
+  var OutputSQL := EmptyStr;
 
-      Changes[OutputFieldList[A]] := OutputFieldList[A].GetAsString(Result);
-    end;
+  for var Field in OutputFieldNameList do
+  begin
+    if not OutputSQL.IsEmpty then
+      OutputSQL := OutputSQL + ',';
+
+    OutputSQL := OutputSQL + Format('Inserted.%s', [Field]);
+  end;
+
+  if OutputSQL.IsEmpty then
+    Cursor.Execute
+  else
+  begin
+    Cursor.SQL := Cursor.SQL.Replace(')values(', Format(')output %s values(', [OutputSQL]));
+
+    if Cursor.Next then
+      for var A := Low(OutputFieldList) to High(OutputFieldList) do
+      begin
+        OutputFieldList[A].SetValue(Result, Cursor.GetFieldValue(A));
+
+        Changes[OutputFieldList[A]] := OutputFieldList[A].GetAsString(Result);
+      end;
+  end;
 
   if Table.ClassTypeInfo.MetaclassType = Result.ClassType then
     FCache.Add(Table.GetCacheKey(Result), Result);
@@ -788,6 +813,8 @@ begin
 
     SaveForeignKeys(Table, ForeignObject);
 
+    var Cursor := FConnection.OpenCursor(EmptyStr);
+
     for var Field in Table.Fields do
       if not Field.InPrimaryKey and not Field.IsManyValueAssociation and not Field.IsReadOnly then
       begin
@@ -806,14 +833,23 @@ begin
           if not SQL.IsEmpty then
             SQL := SQL + ',';
 
-          SQL := SQL + Format('%s=%s', [Field.DatabaseName, ForeignFieldStringValue]);
+          SQL := SQL + Format('%s=:%s', [Field.DatabaseName, Field.DatabaseName]);
+
+          if (ForeignFieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
+            Field.InPrimaryKey or ForeignFieldValue.IsObject) then
+            Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.Create(ForeignFieldStringValue.DeQuotedString)
+          else
+            Cursor.ParamsByName(Field.DatabaseName).AsString := ForeignFieldStringValue.DeQuotedString;
 
           Field.SetValue(Result, ForeignFieldValue);
         end;
       end;
 
     if not SQL.IsEmpty then
-      FConnection.ExecuteDirect(Format('update %s set %s%s', [Table.DatabaseName, SQL, BuildPrimaryKeyFilter(Table, ForeignObject)]));
+    begin
+      Cursor.SQL := Format('update %s set %s%s', [Table.DatabaseName, SQL, BuildPrimaryKeyFilter(Table, ForeignObject)]);
+      Cursor.Execute;
+    end;
 
     SaveManyValueAssociations(Table, Result, ForeignObject);
 

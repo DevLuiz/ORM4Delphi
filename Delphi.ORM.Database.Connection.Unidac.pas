@@ -2,7 +2,7 @@ unit Delphi.ORM.Database.Connection.Unidac;
 
 interface
 
-uses System.SysUtils, System.SyncObjs, Delphi.ORM.Database.Connection, Uni;
+uses System.SysUtils, System.SyncObjs, Delphi.ORM.Database.Connection, Uni, Data.DB;
 
 type
   TDatabaseConnectionUnidac = class;
@@ -13,17 +13,16 @@ type
     FQuery: TUniQuery;
 
     function GetFieldValue(const FieldIndex: Integer): Variant;
+    function GetSQL: String;
     function Next: Boolean;
+    function ParamsByName(Name: String): TParam;
+
+    procedure Execute;
+    procedure SetSQL(Value: String);
   public
     constructor Create(const Connection: TDatabaseConnectionUnidac; const SQL: String);
 
     destructor Destroy; override;
-  end;
-
-  TDatabaseEmptyCursorUnidac = class(TInterfacedObject, IDatabaseCursor)
-  private
-    function GetFieldValue(const FieldIndex: Integer): Variant;
-    function Next: Boolean;
   end;
 
   TDatabaseTransactionUnidac = class(TInterfacedObject, IDatabaseTransaction)
@@ -43,7 +42,6 @@ type
     FConnection: TUniConnection;
     FReadWriteControl: IReadWriteSync;
 
-    function ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
     function OpenCursor(const SQL: String): IDatabaseCursor;
     function StartTransaction: IDatabaseTransaction;
 
@@ -69,6 +67,8 @@ begin
   FConnection := Connection;
   FQuery := TUniQuery.Create(nil);
   FQuery.Connection := FConnection.Connection;
+  FQuery.Options.ReturnParams := True;
+  FQuery.ParamCheck := False;
   FQuery.SQL.Text := SQL;
   FQuery.FetchRows := 65000;
   FQuery.UniDirectional := True;
@@ -85,9 +85,19 @@ begin
   inherited;
 end;
 
+procedure TDatabaseCursorUnidac.Execute;
+begin
+  FQuery.Execute;
+end;
+
 function TDatabaseCursorUnidac.GetFieldValue(const FieldIndex: Integer): Variant;
 begin
   Result := FQuery.Fields[FieldIndex].AsVariant;
+end;
+
+function TDatabaseCursorUnidac.GetSQL: String;
+begin
+  Result := FQuery.SQL.Text;
 end;
 
 function TDatabaseCursorUnidac.Next: Boolean;
@@ -102,6 +112,17 @@ begin
   end;
 
   Result := not FQuery.Eof;
+end;
+
+function TDatabaseCursorUnidac.ParamsByName(Name: String): TParam;
+begin
+  Result := FQuery.Params.AddParameter;
+  Result.Name := Name;
+end;
+
+procedure TDatabaseCursorUnidac.SetSQL(Value: String);
+begin
+  FQuery.SQL.Text := Value;
 end;
 
 { TDatabaseConnectionUnidac }
@@ -137,28 +158,6 @@ begin
   end;
 end;
 
-function TDatabaseConnectionUnidac.ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
-begin
-  var OutputSQL := EmptyStr;
-
-  for var Field in OutputFields do
-  begin
-    if not OutputSQL.IsEmpty then
-      OutputSQL := OutputSQL + ',';
-
-    OutputSQL := OutputSQL + Format('Inserted.%s', [Field]);
-  end;
-
-  if OutputSQL.IsEmpty then
-  begin
-    ExecuteDirect(SQL);
-
-    Result := TDatabaseEmptyCursorUnidac.Create;
-  end
-  else
-    Result := OpenCursor(SQL.Replace(')values(', Format(')output %s values(', [OutputSQL])));
-end;
-
 function TDatabaseConnectionUnidac.OpenCursor(const SQL: String): IDatabaseCursor;
 begin
   Result := TDatabaseCursorUnidac.Create(Self, SQL);
@@ -167,18 +166,6 @@ end;
 function TDatabaseConnectionUnidac.StartTransaction: IDatabaseTransaction;
 begin
   Result := TDatabaseTransactionUnidac.Create(Self);
-end;
-
-{ TDatabaseEmptyCursorUnidac }
-
-function TDatabaseEmptyCursorUnidac.GetFieldValue(const FieldIndex: Integer): Variant;
-begin
-  Result := NULL;
-end;
-
-function TDatabaseEmptyCursorUnidac.Next: Boolean;
-begin
-  Result := False;
 end;
 
 { TDatabaseTransactionUnidac }

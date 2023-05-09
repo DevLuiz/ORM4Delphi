@@ -2,7 +2,7 @@ unit Delphi.ORM.Database.Connection.ZeosLib;
 
 interface
 
-uses Delphi.ORM.Database.Connection, ZAbstractConnection, ZConnection, ZAbstractRODataset, ZAbstractDataset, ZDataset;
+uses Delphi.ORM.Database.Connection, ZAbstractConnection, ZConnection, ZAbstractRODataset, ZAbstractDataset, ZDataset, Data.DB;
 
 type
   TDatabaseCursorZeosLib = class(TInterfacedObject, IDatabaseCursor)
@@ -10,17 +10,16 @@ type
     FQuery: TZQuery;
 
     function GetFieldValue(const FieldIndex: Integer): Variant;
+    function GetSQL: String;
     function Next: Boolean;
+    function ParamsByName(Name: String): TParam;
+
+    procedure Execute;
+    procedure SetSQL(Value: String);
   public
     constructor Create(const Connection: TZConnection; const SQL: String);
 
     destructor Destroy; override;
-  end;
-
-  TDatabaseEmptyCursorZeosLib = class(TInterfacedObject, IDatabaseCursor)
-  private
-    function GetFieldValue(const FieldIndex: Integer): Variant;
-    function Next: Boolean;
   end;
 
   TDatabaseTransactionZeosLib = class(TInterfacedObject, IDatabaseTransaction)
@@ -37,7 +36,7 @@ type
   private
     FConnection: TZConnection;
 
-    function ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
+    procedure ExecuteInsert(const Cursor: IDatabaseCursor; const OutputFields: TArray<String>);
     function OpenCursor(const SQL: String): IDatabaseCursor;
     function StartTransaction: IDatabaseTransaction;
 
@@ -75,26 +74,22 @@ begin
   FConnection.ExecuteDirect(SQL);
 end;
 
-function TDatabaseConnectionZeosLib.ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
+procedure TDatabaseConnectionZeosLib.ExecuteInsert(const Cursor: IDatabaseCursor; const OutputFields: TArray<String>);
 begin
   var OutputSQL := EmptyStr;
 
   for var Field in OutputFields do
   begin
     if not OutputSQL.IsEmpty then
-      OutputSQL := ',';
+      OutputSQL := OutputSQL + ',';
 
     OutputSQL := OutputSQL + Format('Inserted.%s', [Field]);
   end;
 
   if OutputSQL.IsEmpty then
-  begin
-    ExecuteDirect(SQL);
-
-    Result := TDatabaseEmptyCursorZeosLib.Create;
-  end
+    Cursor.Execute
   else
-    Result := OpenCursor(SQL.Replace(')values(', Format(')output %s values(', [OutputSQL])));
+    Cursor.SQL := Cursor.SQL.Replace(')values(', Format(')output %s values(', [OutputSQL]));
 end;
 
 function TDatabaseConnectionZeosLib.OpenCursor(const SQL: String): IDatabaseCursor;
@@ -105,18 +100,6 @@ end;
 function TDatabaseConnectionZeosLib.StartTransaction: IDatabaseTransaction;
 begin
   Result := TDatabaseTransactionZeosLib.Create(Connection);
-end;
-
-{ TDatabaseEmptyCursorZeosLib }
-
-function TDatabaseEmptyCursorZeosLib.GetFieldValue(const FieldIndex: Integer): Variant;
-begin
-  Result := NULL;
-end;
-
-function TDatabaseEmptyCursorZeosLib.Next: Boolean;
-begin
-  Result := False;
 end;
 
 { TDatabaseCursorZeosLib }
@@ -137,9 +120,19 @@ begin
   inherited;
 end;
 
+procedure TDatabaseCursorZeosLib.Execute;
+begin
+  FQuery.Execute;
+end;
+
 function TDatabaseCursorZeosLib.GetFieldValue(const FieldIndex: Integer): Variant;
 begin
   Result := FQuery.Fields[FieldIndex].Value;
+end;
+
+function TDatabaseCursorZeosLib.GetSQL: String;
+begin
+  Result := FQuery.SQL.Text;
 end;
 
 function TDatabaseCursorZeosLib.Next: Boolean;
@@ -150,6 +143,17 @@ begin
     FQuery.Open;
 
   Result := not FQuery.Eof;
+end;
+
+function TDatabaseCursorZeosLib.ParamsByName(Name: String): TParam;
+begin
+  Result := FQuery.Params.AddParameter;
+  Result.Name := Name;
+end;
+
+procedure TDatabaseCursorZeosLib.SetSQL(Value: String);
+begin
+  FQuery.SQL.Text := Value;
 end;
 
 { TDatabaseTransactionZeosLib }

@@ -2,7 +2,7 @@ unit Delphi.ORM.Database.Connection.Firedac;
 
 interface
 
-uses Delphi.ORM.Database.Connection, Firedac.Comp.Client;
+uses Delphi.ORM.Database.Connection, Firedac.Comp.Client, Data.DB;
 
 type
   TDatabaseCursorFiredac = class(TInterfacedObject, IDatabaseCursor)
@@ -10,17 +10,16 @@ type
     FQuery: TFDQuery;
 
     function GetFieldValue(const FieldIndex: Integer): Variant;
+    function GetSQL: String;
     function Next: Boolean;
+    function ParamsByName(Name: String): TParam;
+
+    procedure Execute;
+    procedure SetSQL(Value: String);
   public
     constructor Create(const Connection: TFDConnection; const SQL: String);
 
     destructor Destroy; override;
-  end;
-
-  TDatabaseEmptyCursorFiredac = class(TInterfacedObject, IDatabaseCursor)
-  private
-    function GetFieldValue(const FieldIndex: Integer): Variant;
-    function Next: Boolean;
   end;
 
   TDatabaseTransactionFiredac = class(TInterfacedObject, IDatabaseTransaction)
@@ -37,7 +36,7 @@ type
   private
     FConnection: TFDConnection;
 
-    function ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
+    procedure ExecuteInsert(const Cursor: IDatabaseCursor; const OutputFields: TArray<String>);
     function OpenCursor(const SQL: String): IDatabaseCursor;
     function StartTransaction: IDatabaseTransaction;
 
@@ -52,7 +51,7 @@ type
 
 implementation
 
-uses System.SysUtils, System.Variants, Winapi.ActiveX, Firedac.Stan.Def, Firedac.Stan.Option, Firedac.DApt, Firedac.Stan.Async, Data.DB;
+uses System.SysUtils, System.Variants, Winapi.ActiveX, Firedac.Stan.Def, Firedac.Stan.Option, Firedac.DApt, Firedac.Stan.Async;
 
 { TDatabaseCursorFiredac }
 
@@ -72,6 +71,11 @@ begin
   inherited;
 end;
 
+procedure TDatabaseCursorFiredac.Execute;
+begin
+  FQuery.Execute;
+end;
+
 function TDatabaseCursorFiredac.GetFieldValue(const FieldIndex: Integer): Variant;
 begin
   var Field := FQuery.Fields[FieldIndex];
@@ -82,6 +86,11 @@ begin
     Result := Field.AsVariant;
 end;
 
+function TDatabaseCursorFiredac.GetSQL: String;
+begin
+  Result := FQuery.SQL.Text;
+end;
+
 function TDatabaseCursorFiredac.Next: Boolean;
 begin
   if FQuery.Active then
@@ -89,6 +98,17 @@ begin
   else
     FQuery.Open;
   Result := not FQuery.Eof;
+end;
+
+function TDatabaseCursorFiredac.ParamsByName(Name: String): TParam;
+begin
+  Result := TParam(FQuery.Params.Add);
+  Result.Name := Name;
+end;
+
+procedure TDatabaseCursorFiredac.SetSQL(Value: String);
+begin
+  FQuery.SQL.Text := Value;
 end;
 
 { TDatabaseConnectionFiredac }
@@ -120,27 +140,22 @@ begin
   FConnection.ExecSQL(SQL);
 end;
 
-function TDatabaseConnectionFiredac.ExecuteInsert(const SQL: String; const OutputFields: TArray<String>): IDatabaseCursor;
+procedure TDatabaseConnectionFiredac.ExecuteInsert(const Cursor: IDatabaseCursor; const OutputFields: TArray<String>);
 begin
-  var
-  OutputSQL := EmptyStr;
+  var OutputSQL := EmptyStr;
 
   for var Field in OutputFields do
   begin
     if not OutputSQL.IsEmpty then
-      OutputSQL := ',';
+      OutputSQL := OutputSQL + ',';
 
     OutputSQL := OutputSQL + Format('Inserted.%s', [Field]);
   end;
 
   if OutputSQL.IsEmpty then
-  begin
-    ExecuteDirect(SQL);
-
-    Result := TDatabaseEmptyCursorFiredac.Create;
-  end
+    Cursor.Execute
   else
-    Result := OpenCursor(SQL.Replace(')values(', Format(')output %s values(', [OutputSQL])));
+    Cursor.SQL := Cursor.SQL.Replace(')values(', Format(')output %s values(', [OutputSQL]));
 end;
 
 function TDatabaseConnectionFiredac.OpenCursor(const SQL: String): IDatabaseCursor;
@@ -151,18 +166,6 @@ end;
 function TDatabaseConnectionFiredac.StartTransaction: IDatabaseTransaction;
 begin
   Result := TDatabaseTransactionFiredac.Create(Connection);
-end;
-
-{ TDatabaseEmptyCursorFiredac }
-
-function TDatabaseEmptyCursorFiredac.GetFieldValue(const FieldIndex: Integer): Variant;
-begin
-  Result := NULL;
-end;
-
-function TDatabaseEmptyCursorFiredac.Next: Boolean;
-begin
-  Result := False;
 end;
 
 { TDatabaseTransactionFiredac }
