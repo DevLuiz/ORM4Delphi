@@ -556,7 +556,9 @@ begin
         Changes[Field] := FieldStringValue;
         SQL := Format(SQL, [Field.DatabaseName + '%2:s%0:s', ':' + Field.DatabaseName + '%2:s%1:s', ',']);
 
-        if (FieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
+        if FieldStringValue = 'null' then
+          Cursor.ParamsByName(Field.DatabaseName).Clear
+        else if (FieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
           Field.InPrimaryKey or FieldValue.IsObject) then
           Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.Create(FieldStringValue.DeQuotedString)
         else
@@ -835,11 +837,14 @@ begin
 
           SQL := SQL + Format('%s=:%s', [Field.DatabaseName, Field.DatabaseName]);
 
-          if (ForeignFieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
+          if ForeignFieldStringValue = 'null' then
+            Cursor.ParamsByName(Field.DatabaseName).Clear
+          else if (ForeignFieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
             Field.InPrimaryKey or ForeignFieldValue.IsObject) then
             Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.Create(ForeignFieldStringValue.DeQuotedString)
           else
             Cursor.ParamsByName(Field.DatabaseName).AsString := ForeignFieldStringValue.DeQuotedString;
+
 
           Field.SetValue(Result, ForeignFieldValue);
         end;
