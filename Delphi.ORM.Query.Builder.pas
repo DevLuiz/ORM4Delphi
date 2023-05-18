@@ -838,7 +838,13 @@ begin
           SQL := SQL + Format('%s=:%s', [Field.DatabaseName, Field.DatabaseName]);
 
           if ForeignFieldStringValue = 'null' then
-            Cursor.ParamsByName(Field.DatabaseName).Clear
+          begin
+            if (ForeignFieldValue.Kind in [tkUnknown, tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
+              Field.InPrimaryKey or ForeignFieldValue.IsObject) then
+              Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.NewGuid;
+
+            Cursor.ParamsByName(Field.DatabaseName).Clear;
+          end
           else if (ForeignFieldValue.Kind in [tkChar, tkLString, tkRecord, tkString, tkUString, tkWChar, tkWString]) and (Field.IsForeignKey or
             Field.InPrimaryKey or ForeignFieldValue.IsObject) then
             Cursor.ParamsByName(Field.DatabaseName).AsGuid := TGUID.Create(ForeignFieldStringValue.DeQuotedString)

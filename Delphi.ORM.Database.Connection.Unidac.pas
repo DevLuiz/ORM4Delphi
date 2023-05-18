@@ -116,7 +116,11 @@ end;
 
 function TDatabaseCursorUnidac.ParamsByName(Name: String): TParam;
 begin
-  Result := FQuery.Params.AddParameter;
+  Result := FQuery.Params.FindParam(Name);
+
+  if not Assigned(Result) then
+    Result := FQuery.Params.AddParameter;
+
   Result.Name := Name;
 end;
 
