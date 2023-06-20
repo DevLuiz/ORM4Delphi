@@ -70,7 +70,7 @@ begin
   FQuery.Options.ReturnParams := True;
   FQuery.ParamCheck := False;
   FQuery.SQL.Text := SQL;
-  FQuery.FetchRows := 65000;
+  FQuery.FetchRows := 10;
   FQuery.UniDirectional := True;
 end;
 
